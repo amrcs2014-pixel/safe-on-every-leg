@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# The benchmark files are downloaded by code/experiments/get_data.py.
+data/br/
+
+# The manuscript and other documents stay out of the repository until the paper is published.
+manuscript/
+*.pdf
+
+# The two largest result files are kept compressed (.csv.gz). The two parts they were merged
+# from and the trial runs of the final runner are left out.
+results/final_main.csv
+results/final_algorithms.csv
+results/final_*_more.csv
+results/final_*_runs_first.csv
+results/final_smoke_*.csv
