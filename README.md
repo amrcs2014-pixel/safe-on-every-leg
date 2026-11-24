@@ -73,4 +73,4 @@ Scripts named `*_pilot.py`, `tune_*.py` and `timing.py`, and the result files `e
 
 ## Licence
 
-To be chosen by the authors before the repository is made public.
+The code and the result files are released under the MIT License; see `LICENSE`. The benchmark instances are not covered by it: they are fetched from their sources and remain under the terms of those sources.
