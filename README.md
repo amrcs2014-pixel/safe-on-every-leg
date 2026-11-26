@@ -10,7 +10,7 @@ In multi-drop delivery the cargo on board changes at every stop, so a load that 
 |---|---|
 | `code/legsafe/` | The model: instances (`instances.py`), vehicle (`vehicle.py`), leg loads and margins (`legs.py`), objectives, decoder, NSGA-II (`nsga2.py`), NSGA-III, MOEA/D, SMS-EMOA and the quality indicators (`moea.py`), the exact grid model (`exact.py`). |
 | `code/experiments/` | One script per experiment, its summary, and `paper.py`, which writes the tables and figures of the paper. |
-| `code/tests/` | 447 tests, among them checks that the compiled kernels return exactly what the plain reference code returns. |
+| `code/tests/` | 456 tests, among them checks that the compiled kernels return exactly what the plain reference code returns. |
 | `results/` | The result file of every experiment, one row per plan or per checkpoint. |
 | `data/` | Empty in the repository; see below. |
 
@@ -41,13 +41,15 @@ Runs are seeded, so each command below writes the result file in `results/` that
 
 | Section of the paper | Command | Result file |
 |---|---|---|
-| Exact fronts on small instances (E1) | `python -m experiments.e1_exact exact`, then `heuristic` and `extended`; `python -m experiments.e1_reach` and `python -m experiments.e1_reach --extended --limit 3e6` | `e1_*.csv` |
+| Exact fronts on small instances (E1) | `python -m experiments.e1_exact exact --time-limit 600`, then `heuristic` and `extended`; `python -m experiments.e1_reach` and `python -m experiments.e1_reach --extended --limit 3e6` | `e1_*.csv` (the `*_axle_only.csv` files are an earlier run without the rollover margin) |
 | Budget and convergence | `python -m experiments.convergence --grid types` | `convergence_types.csv` |
 | The same with the search variants that were tried | add `--variant distinct`, `one_key`, `seeded --up-to 4000` or `two_ends --up-to 4000`, or `--classes 10 15 --stops 5 10 20` | `convergence_types_*.csv` |
 | Plain loading problem | `python -m experiments.plain --classes 1 2 3 4 5 6 7 --instances 10 --budgets 1000 2000 5000 --out plain.csv` and `python -m experiments.plain --classes 8 9 10 11 12 13 14 15 --instances 5 --budgets 1000 2000 --out plain_large.csv` | `plain.csv`, `plain_large.csv` |
 | Departure balance and the cost of safety (E2, E3, E5) | `python -m experiments.final --name main --classes 1 2 3 4 5 6 7 --instances 20 22 --runs 5 --objectives every_leg departure centre` | `final_main.csv.gz` |
 | Five stops and rollover | `python -m experiments.final --name stops --classes 3 4 5 6 7 --instances 20 22 --stops 5 --runs 2` | `final_stops.csv` |
+| Vehicle geometry | `python -m experiments.final --name vehicles --instances 20 20 --runs 2 --objectives every_leg departure centre --vehicles reference overhang_1.0 overhang_0.0 high` | `final_vehicles.csv.gz` |
 | Search algorithms (E4) | `python -m experiments.final --name algorithms --classes 1 3 5 7 --instances 20 21 --weights 0 2 --runs 10 --algorithms nsga2 nsga3 moead sms_emoa` | `final_algorithms.csv.gz` |
+| Run times of the four searches | `python -m experiments.timing_e4 --runs 2`, one run at a time | `timing_e4.csv` |
 
 The summaries print every number quoted in the paper:
 
@@ -57,6 +59,7 @@ python -m experiments.convergence_summary --grid types
 python -m experiments.final_summary objectives main
 python -m experiments.final_summary stops stops
 python -m experiments.final_summary algorithms algorithms
+python -m experiments.final_summary vehicles vehicles
 python -m experiments.plain_summary
 ```
 
@@ -69,6 +72,7 @@ Scripts named `*_pilot.py`, `tune_*.py` and `timing.py`, and the result files `e
 ## Assumptions to keep in mind
 
 - The reference vehicle is the rigid IVECO Eurocargo of the worked example of Krebs and Ehmke (2021). Its kerb weights come from the manufacturer's description of a sister variant, the mass of its body is inferred, and the two heights used by the rollover margin are assumed (`code/experiments/common.py`).
+- The vehicles of the sensitivity study (`VEHICLES` in `code/experiments/final.py`) are geometric variants of the reference truck, not real vehicles.
 - Box weights are generated as described by Elahi et al. (2026); the payload (10.1 t) and the target utilisation (0.9) of the generator are our choice.
 
 ## Licence

@@ -107,3 +107,45 @@ def test_front_trades_volume_against_obstacles_when_legality_is_required():
     for point in legal:
         assert point.obstacles == unloading_obstacles(point.layout)
         assert sigma(inst, point.layout) >= -1e-9
+
+
+def rollover_vehicle(inst, **changes):
+    return truck(TARE[REFERENCE_TARE], rollover=True, width=inst.space[1], **changes)
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3])
+@pytest.mark.parametrize("quantile", [0.3, 0.7])
+def test_rollover_rows_hold_exactly_when_the_rollover_margin_reaches_the_level(seed, quantile):
+    from legsafe import rollover_margin
+
+    inst = small_instance(seed, 5, space=(6.0, 1.0, 1.5))
+    v = rollover_vehicle(inst, deck_height=1.6, tare_cg_height=1.5, lateral_accel=0.45)  # tall, so that the rows bind
+    model = GridModel(inst, v, DELTA)
+    rng = np.random.default_rng(seed)
+    layouts = [decode(inst, rng.random(n_keys(inst)), DELTA) for _ in range(200)]
+    rhos = [rollover_margin(v, leg_moments(l.mass, *l.centre.T, l.rank, inst.n_stops)).min() for l in layouts]
+    level = float(np.quantile(rhos, quantile))  # a level that some plans reach and others do not
+    matrix, lower, _ = model._rollover_rows(level)
+    held = 0
+    for layout, rho in zip(layouts, rhos):
+        x = np.zeros(2 * model.n)
+        for k, lo, size in zip(layout.type, layout.lo, layout.size):
+            x[model.index[(int(k), *(int(round(c / DELTA)) for c in lo), *(int(round(c / DELTA)) for c in size))]] += 1
+        rows_hold = bool((matrix @ x >= lower - 1e-9).all())
+        if abs(rho - level) > 1e-9:
+            assert rows_hold == (rho >= level)
+        held += rows_hold
+    assert 0 < held < len(layouts)
+
+
+def test_margin_constraint_with_rollover_makes_every_leg_legal_on_both_counts():
+    from legsafe import rollover_margin
+
+    inst = small_instance(2, 4, space=(6.0, 1.0, 1.5))
+    v = rollover_vehicle(inst, deck_height=1.6, tare_cg_height=1.5, lateral_accel=0.45)
+    loose, _ = GridModel(inst, truck(TARE[REFERENCE_TARE], width=inst.space[1]), DELTA).solve(0.0)
+    solution, closed = GridModel(inst, v, DELTA).solve(0.0)
+    assert closed and solution is not None
+    lm = leg_moments(solution.layout.mass, *solution.layout.centre.T, solution.layout.rank, inst.n_stops)
+    assert rollover_margin(v, lm).min() >= -1e-9 and axle_margin(v, lm).min() >= -1e-9
+    assert solution.volume <= loose.volume

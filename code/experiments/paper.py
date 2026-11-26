@@ -203,8 +203,43 @@ def figures():
           f"{int((every['sigma'] >= 0.05).sum())} with a margin of 5%")
 
 
+def vehicles():
+    """Vehicle sensitivity study: one row per vehicle."""
+    from .final import VEHICLES
+
+    d = complete_replicates(read("final_vehicles.csv").assign(algorithm=lambda f: f["algorithm"] + "|" + f["vehicle"]))
+    d["algorithm"] = d["algorithm"].str.split("|").str[0]
+    labels = {"reference": "Reference", "overhang_1.0": "Axle moved back", "overhang_0.0": "Axle at the door",
+              "high": "Higher centres"}
+    rows = []
+    for name, label in labels.items():
+        part = d[d["vehicle"] == name]
+        means = per_run(part).groupby(CASE + ["objective"]).mean(numeric_only=True)
+        centre, departure, every = (means.xs(o, level="objective") for o in ("centre", "departure", "every_leg"))
+        v = VEHICLES[name]
+        legal = part[(part["objective"] == "every_leg") & (part["sigma"] >= -1e-12)]
+        rows.append([label, num(v.length - v.a_rear, 2), num(centre["fails_en_route"].mean()), num(departure["fails_en_route"].mean()),
+                     num(every["best_legal"].mean(), 2), num((every["best_any_few"] - every["best_legal_few"]).mean(), 2),
+                     num((every["best_any_free"] - every["best_legal_free"]).mean(), 2),
+                     num(100 * (legal["rollover"] < legal["axle"]).mean()), num(100 * legal["rear_share"].min(), 0)])
+    write("vehicles", rows)
+
+
+def timing():
+    """Run times of the four searches: wall-clock seconds per run by class, relative time, share spent in selection."""
+    d = read("timing_e4.csv")
+    wall = d.pivot_table(index="algorithm", columns="br_class", values="wall")
+    relative = d.pivot_table(index=["br_class", "run"], columns="algorithm", values="wall")
+    relative = relative.div(relative["nsga2"], axis=0).mean()
+    selection = 1 - d.groupby("algorithm")["evaluation_wall"].sum() / d.groupby("algorithm")["wall"].sum()
+    rows = []
+    for algorithm, label in ALGORITHM_NAMES.items():
+        rows.append([label] + [num(wall.loc[algorithm, c], 1) for c in wall.columns] + [num(relative[algorithm], 2), num(100 * selection[algorithm], 0)])
+    write("timing", rows)
+
+
 PARTS = {"objectives": objectives, "cost": cost, "stops": stops, "algorithms": algorithms, "plain": plain,
-         "convergence": convergence, "figures": figures}
+         "convergence": convergence, "vehicles": vehicles, "timing": timing, "figures": figures}
 
 if __name__ == "__main__":
     for part in sys.argv[1:] or list(PARTS):

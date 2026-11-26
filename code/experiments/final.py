@@ -25,7 +25,7 @@ from functools import partial
 
 import numpy as np
 
-from legsafe import (axle_margin, centre_deviation, decode, leg_moments, n_keys, nsga2, rollover_margin,
+from legsafe import (axle_margin, centre_deviation, decode, leg_moments, n_keys, nsga2, rollover_margin, support_loads,
                      unloading_obstacles, utilisation)
 from legsafe.moea import moead, nsga3, sms_emoa
 
@@ -33,6 +33,48 @@ from .common import BETAS, REFERENCE_TARE, TARE, instance, run_parallel, truck
 from .e5_pilot import fill_first
 
 VEHICLE = truck(TARE[REFERENCE_TARE], rollover=True)
+
+
+def axle_loads_uniform(v, payload=None):
+    """Axle loads of a vehicle with its full payload spread evenly over the length of the loading space."""
+    payload = v.max_front + v.max_rear - v.tare if payload is None else payload
+    centre = v.length / 2
+    front = v.tare_front + payload * (v.a_rear - centre) / v.wheelbase
+    return front, v.tare + payload - front
+
+
+def moved_rear_axle(overhang: float):
+    """The reference truck with its rear axle moved so that `overhang` metres of the loading space lie
+    behind it. A geometric variant, not a real vehicle. The tare mass and the position of the empty
+    vehicle's centre of gravity are kept, so the tare is split anew. The axle limits are set so that
+    the full payload spread evenly over the loading space leaves each axle the same relative slack as
+    on the reference truck: a vehicle is built for the load it is meant to carry, and keeping the
+    reference limits would make most plans illegal at departure on the longer wheelbases."""
+    from experiments.common import PAYLOAD
+
+    v = VEHICLE
+    tare_x = v.a_front + v.wheelbase * v.tare_rear / v.tare  # centre of gravity of the empty vehicle
+    a_rear = v.length - overhang
+    rear = v.tare * (tare_x - v.a_front) / (a_rear - v.a_front)
+    moved = truck((v.tare - rear, rear), rollover=True, a_rear=a_rear)
+    front_ref, rear_ref = axle_loads_uniform(v, PAYLOAD)
+    front_new, rear_new = axle_loads_uniform(moved, PAYLOAD)
+    return truck((v.tare - rear, rear), rollover=True, a_rear=a_rear,
+                 max_front=front_new * v.max_front / front_ref, max_rear=rear_new * v.max_rear / rear_ref)
+
+
+# Vehicles of the sensitivity study. "reference" is the vehicle of all other experiments; the
+# overhang variants move its rear axle back (1.0 and 0.0 m of loading space behind it, against 2.015 m);
+# "high" raises the cargo floor to 1.30 m and the centre of gravity of the empty vehicle to 1.20 m.
+VEHICLES = {
+    "reference": VEHICLE,
+    "overhang_1.0": moved_rear_axle(1.0),
+    "overhang_0.0": moved_rear_axle(0.0),
+    "high": truck(TARE[REFERENCE_TARE], rollover=True, deck_height=1.30, tare_cg_height=1.20),
+}
+# Share of the gross weight that the driving axle must carry, after Directive 96/53/EC; the
+# Eurocargo drives its rear axle. Recorded for every plan, not imposed by the searches.
+DRIVING_SHARE = 0.25
 POP_SIZE = 105       # the number of reference directions for three objectives and 13 divisions
 DIVISIONS = 13
 PER_TYPE = 5000      # evaluations per box type
@@ -43,19 +85,23 @@ OBJECTIVES = ("every_leg", "departure", "centre")
 ALGORITHMS = {"nsga2": nsga2, "nsga3": nsga3, "moead": moead, "sms_emoa": sms_emoa}
 
 
-def measures(inst, layout) -> dict:
-    """Everything recorded for a plan."""
+def measures(inst, layout, vehicle=None) -> dict:
+    """Everything recorded for a plan, on the reference vehicle unless another one is given."""
+    v = VEHICLE if vehicle is None else vehicle
     lm = leg_moments(layout.mass, *layout.centre.T, layout.rank, inst.n_stops)
-    axle, roll = axle_margin(VEHICLE, lm), rollover_margin(VEHICLE, lm)
+    axle, roll = axle_margin(v, lm), rollover_margin(v, lm)
     per_leg = np.minimum(axle, roll)
     mass = float(layout.mass.sum())
-    rd = centre_deviation(VEHICLE, layout.mass, *layout.centre.T) if mass > 0 else (0.5, 0.5, 0.5)
+    rd = centre_deviation(v, layout.mass, *layout.centre.T) if mass > 0 else (0.5, 0.5, 0.5)
+    front, rear = support_loads(v, lm)
+    rear_share = rear / (front + rear)  # share of the gross weight on the rear (driving) axle, by leg
     return dict(
         utilisation=utilisation(inst, layout), obstacles=unloading_obstacles(layout),
         sigma=float(per_leg.min()), sigma_departure=float(per_leg[0]), worst_leg=int(per_leg.argmin()),
         axle=float(axle.min()), axle_departure=float(axle[0]), rollover=float(roll.min()),
         rd_x=rd[0], rd_y=rd[1], rd_z=rd[2], boxes=len(layout.lo), mass=mass,
         cg_height=float(layout.mass @ layout.centre[:, 2] / mass) if mass > 0 else 0.0,  # of the cargo, above the floor
+        rear_share=float(rear_share.min()), rear_share_departure=float(rear_share[0]),
     )
 
 
@@ -79,7 +125,7 @@ def third_objective(m: dict, objective: str) -> float:
     return (m["rd_x"] + m["rd_y"] + m["rd_z"]) / 3
 
 
-def search(inst, rng, objective="every_leg", algorithm="nsga2", per_type=PER_TYPE, fill=0, observer=None):
+def search(inst, rng, objective="every_leg", algorithm="nsga2", per_type=PER_TYPE, fill=0, observer=None, vehicle=None):
     """Keys and objectives of the archive of one run.
 
     `fill` evaluations per box type are spent first on a search for fill alone, whose best plans join the
@@ -89,7 +135,7 @@ def search(inst, rng, objective="every_leg", algorithm="nsga2", per_type=PER_TYP
     n_types = len(inst.types)
 
     def evaluate(keys):
-        m = measures(inst, decode(inst, keys))
+        m = measures(inst, decode(inst, keys), vehicle)
         return -m["utilisation"], m["obstacles"], third_objective(m, objective)
 
     generations = max(1, round(per_type * n_types / POP_SIZE))
@@ -113,17 +159,18 @@ def search(inst, rng, objective="every_leg", algorithm="nsga2", per_type=PER_TYP
 
 
 def run(task, per_type=PER_TYPE, fill=0, n_runs=10):
-    job, stops, number, objective, algorithm = task
+    job, stops, number, objective, algorithm, *rest = task
+    vehicle = rest[0] if rest else "reference"
     inst, rngs = instance(job, n_runs, stops)
     started = time.perf_counter()
-    keys, _ = search(inst, rngs[number], objective, algorithm, per_type, fill)
+    keys, _ = search(inst, rngs[number], objective, algorithm, per_type, fill, vehicle=VEHICLES[vehicle])
     seconds = time.perf_counter() - started
     head = dict(br_class=job[0], instance=job[1], alpha=job[2][0], beta=job[2][1], stops=inst.n_stops, types=len(inst.types),
-                run=number, objective=objective, algorithm=algorithm, seconds=round(seconds, 2))
+                run=number, objective=objective, algorithm=algorithm, vehicle=vehicle, seconds=round(seconds, 2))
     rows = []
     for plan, k in enumerate(keys):
         layout = decode(inst, k)
-        rows.append(dict(head, plan=plan, **measures(inst, layout), **rollover_at_other_heights(inst, layout)))
+        rows.append(dict(head, plan=plan, **measures(inst, layout, VEHICLES[vehicle]), **rollover_at_other_heights(inst, layout)))
     return rows
 
 
@@ -141,13 +188,14 @@ if __name__ == "__main__":
     parser.add_argument("--algorithms", nargs="+", choices=list(ALGORITHMS), default=["nsga2"])
     parser.add_argument("--per-type", type=int, default=PER_TYPE)
     parser.add_argument("--fill", type=int, default=0, help="evaluations per box type of a search for fill that comes first")
+    parser.add_argument("--vehicles", nargs="+", choices=list(VEHICLES), default=["reference"])
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
     # One whole replicate after the other, the largest classes first within a replicate: a run that is
     # stopped early still leaves complete replicates of every case.
-    tasks = [((c, i, BETAS[w]), s or None, n, objective, algorithm)
+    tasks = [((c, i, BETAS[w]), s or None, n, objective, algorithm, vehicle)
              for n in range(args.first_run, args.runs) for c in sorted(args.classes, reverse=True) for s in args.stops
              for i in range(args.instances[0], args.instances[1] + 1) for w in args.weights
-             for objective in args.objectives for algorithm in args.algorithms]
+             for vehicle in args.vehicles for objective in args.objectives for algorithm in args.algorithms]
     run_parallel(partial(run, per_type=args.per_type, fill=args.fill, n_runs=args.runs),
                  tasks, args.workers, f"final_{args.name}.csv")

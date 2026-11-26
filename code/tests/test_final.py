@@ -73,3 +73,35 @@ def test_search_reports_generations_in_evaluations_of_the_whole_run():
     total = round(130 * len(inst.types) / final.POP_SIZE)
     first = max(1, round(40 * len(inst.types) / final.POP_SIZE))
     assert seen == list(range(first + 2, total + 1))
+
+
+def test_vehicle_variants_keep_the_tare_and_its_centre_and_move_the_rear_axle():
+    reference = final.VEHICLES["reference"]
+    centre = reference.a_front + reference.wheelbase * reference.tare_rear / reference.tare
+    from experiments.common import PAYLOAD
+
+    slack = [1 - load / limit for load, limit in zip(final.axle_loads_uniform(reference, PAYLOAD), (reference.max_front, reference.max_rear))]
+    for overhang in (1.0, 0.0):
+        v = final.VEHICLES[f"overhang_{overhang}"]
+        assert v.length - v.a_rear == pytest.approx(overhang)
+        assert v.tare == pytest.approx(reference.tare) and v.a_front == reference.a_front
+        assert v.a_front + v.wheelbase * v.tare_rear / v.tare == pytest.approx(centre)
+        assert (v.track, v.deck_height) == (reference.track, reference.deck_height)
+        loads = final.axle_loads_uniform(v, PAYLOAD)
+        assert [1 - load / limit for load, limit in zip(loads, (v.max_front, v.max_rear))] == pytest.approx(slack)
+        assert v.tare_front < v.max_front and v.tare_rear < v.max_rear  # the empty vehicle is legal
+    high = final.VEHICLES["high"]
+    assert (high.deck_height, high.tare_cg_height, high.a_rear) == (1.30, 1.20, reference.a_rear)
+
+
+def test_rear_share_is_the_rear_load_over_the_gross_weight():
+    from legsafe import leg_moments, support_loads
+
+    inst, (rng,) = instance(JOB, 1)
+    layout = decode(inst, rng.random(n_keys(inst)))
+    for name, v in final.VEHICLES.items():
+        m = final.measures(inst, layout, v)
+        front, rear = support_loads(v, leg_moments(layout.mass, *layout.centre.T, layout.rank, inst.n_stops))
+        assert m["rear_share"] == pytest.approx((rear / (front + rear)).min())
+        assert m["rear_share_departure"] == pytest.approx(rear[0] / (front[0] + rear[0]))
+        assert front[0] + rear[0] == pytest.approx(v.tare + layout.mass.sum())

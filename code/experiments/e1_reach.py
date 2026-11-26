@@ -18,12 +18,12 @@ from functools import partial
 
 import numpy as np
 
-from legsafe import axle_margin, decode, n_keys, unloading_obstacles
+from legsafe import decode, n_keys, unloading_obstacles
 from legsafe.decoder import level_key, offset_levels
 
 from .common import run_parallel
-from .e1_exact import JOBS, MARGINS, SPACES, describe
-from .e5_pilot import VEHICLE, legs
+from .e1_exact import JOBS, MARGINS, SPACES, describe, vehicle_for
+from .e5_pilot import margin_of
 from .small import DELTA, small_instance
 
 
@@ -44,6 +44,7 @@ def key_space(inst, extended: bool) -> int:
 def run_reach(job, extended=False):
     inst = small_instance(job[2], job[1], space=SPACES[job[0]])
     n_types = len(inst.types)
+    vehicle = vehicle_for(inst)
     best = {name: {} for name in MARGINS}  # margin level -> obstacles -> largest volume
     keys = np.empty(n_keys(inst, extended))
     for order in itertools.permutations(range(n_types)):
@@ -53,7 +54,7 @@ def run_reach(job, extended=False):
             layout = decode(inst, keys, DELTA)
             volume = round(layout.size.prod(axis=1).sum() / DELTA**3)
             obstacles = unloading_obstacles(layout)
-            sigma = axle_margin(VEHICLE, legs(inst, layout)).min()
+            sigma = margin_of(inst, layout, vehicle)
             for name, margin in MARGINS.items():
                 if (margin is None or sigma >= margin - 1e-9) and volume > best[name].get(obstacles, -1):
                     best[name][obstacles] = volume

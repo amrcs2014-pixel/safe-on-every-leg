@@ -240,11 +240,83 @@ def stops_main(name):
           (legal[columns].lt(0).mean() * 100).round(2).to_dict())
 
 
+def vehicles_main(name):
+    """The three searches on the vehicles of the sensitivity study, against the reference vehicle."""
+    from scipy.stats import wilcoxon
+
+    from .final import DRIVING_SHARE, VEHICLES
+
+    d = read(f"final_{name}.csv")
+    runs_per_case = d.groupby(CASE + ["vehicle", "objective"])["run"].nunique()
+    full = d.groupby("run").apply(lambda part: part.groupby(CASE + ["vehicle", "objective"]).ngroups, include_groups=False)
+    d = d[d["run"].isin(full[full == full.max()].index)]
+    vehicles = [v for v in VEHICLES if v in d["vehicle"].unique()]
+    print(f"{d.groupby(CASE).ngroups} cases, complete runs {sorted(d['run'].unique())}, vehicles {vehicles}\n")
+    for v in vehicles:
+        spec = VEHICLES[v]
+        print(f"  {v}: rear axle {spec.a_rear:.3f} m behind the front wall, overhang {spec.length - spec.a_rear:.2f} m, "
+              f"tare {spec.tare_front:.3f} / {spec.tare_rear:.3f} t, floor {spec.deck_height} m, empty-vehicle centre of gravity {spec.tare_cg_height} m")
+    means = {}
+    for v in vehicles:
+        part = d[d["vehicle"] == v]
+        means[v] = per_run(part).groupby(CASE + ["objective"]).mean(numeric_only=True)
+    columns = ["legal_share", "fails_en_route", "best_departure_fails", "best_any", "best_legal", "best_legal_few", "best_legal_free",
+               "best_margin", "rollover_binds"]
+    for objective in ("centre", "departure", "every_leg"):
+        table = pd.DataFrame({v: means[v].xs(objective, level="objective")[columns].mean() for v in vehicles})
+        print(f"\nThird objective {objective}: mean over cases")
+        print(table.round(2).to_string())
+    print("\nCases in which no run of the search on every leg has such a plan:")
+    print(pd.DataFrame({v: means[v].xs("every_leg", level="objective")[["best_legal", "best_legal_few", "best_legal_free"]].isna().sum()
+                        for v in vehicles}).to_string())
+    print("\nCost of safety within the archives of the search on every leg (points):")
+    rows = {}
+    for v in vehicles:
+        e = means[v].xs("every_leg", level="objective")
+        rows[v] = {"legal": (e["best_any"] - e["best_legal"]).mean(), "margin": (e["best_any"] - e["best_margin"]).mean(),
+                   "legal, at most 20 obstacles": (e["best_any_few"] - e["best_legal_few"]).mean(),
+                   "legal, no obstacles": (e["best_any_free"] - e["best_legal_free"]).mean()}
+    print(pd.DataFrame(rows).round(2).to_string())
+    print("\nAgainst the reference vehicle, case by case (search on every leg unless named):")
+    base = means["reference"]
+    for v in vehicles:
+        if v == "reference":
+            continue
+        for objective, column in (("centre", "fails_en_route"), ("every_leg", "best_legal"), ("every_leg", "best_legal_few"),
+                                  ("every_leg", "best_legal_free"), ("every_leg", "legal_share")):
+            both = pd.DataFrame({"a": means[v].xs(objective, level="objective")[column],
+                                 "b": base.xs(objective, level="objective")[column]}).dropna()
+            diff = both["a"] - both["b"]
+            p = wilcoxon(diff).pvalue if (diff.abs() > 1e-9).any() else float("nan")
+            print(f"  {v}, {objective}, {column}: {both['a'].mean():.2f} against {both['b'].mean():.2f}, difference {diff.mean():+.2f} "
+                  f"(higher in {(diff > 1e-9).sum()}, lower in {(diff < -1e-9).sum()} of {len(diff)} cases, p = {p:.4f})")
+    print("\nWhich limit is violated, among plans that are legal at departure and not on the route:")
+    for v in vehicles:
+        part = d[(d["vehicle"] == v) & (d["sigma_departure"] >= -1e-12) & (d["sigma"] < -1e-12)]
+        if len(part):
+            print(f"  {v}: {len(part)} plans; axle limit {100 * (part['axle'] < -1e-12).mean():.1f}%, "
+                  f"rollover {100 * (part['rollover'] < -1e-12).mean():.1f}%")
+    print(f"\nShare of the gross weight on the rear (driving) axle; Directive 96/53/EC asks for at least {DRIVING_SHARE:.0%}:")
+    for v in vehicles:
+        part = d[d["vehicle"] == v]
+        legal = part[part["sigma"] >= -1e-12]
+        print(f"  {v}: lowest over all plans {part['rear_share'].min():.3f} (at departure {part['rear_share_departure'].min():.3f}); "
+              f"plans below {DRIVING_SHARE:.2f} on some leg {100 * (part['rear_share'] < DRIVING_SHARE).mean():.2f}% of all, "
+              f"{100 * (legal['rear_share'] < DRIVING_SHARE).mean():.2f}% of the plans legal on every leg; "
+              f"at departure {100 * (part['rear_share_departure'] < DRIVING_SHARE).mean():.2f}%")
+    print("\nRollover margin of all plans by vehicle: lowest, median, share negative (%), share below the axle margin (%):")
+    for v in vehicles:
+        part = d[d["vehicle"] == v]
+        print(f"  {v}: {part['rollover'].min():.3f}, {part['rollover'].median():.3f}, {100 * (part['rollover'] < 0).mean():.2f}, "
+              f"{100 * (part['rollover'] < part['axle']).mean():.2f}")
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("what", choices=["objectives", "algorithms", "stops"])
+    parser.add_argument("what", choices=["objectives", "algorithms", "stops", "vehicles"])
     parser.add_argument("name")
     args = parser.parse_args()
-    {"objectives": objectives_main, "algorithms": algorithms_main, "stops": stops_main}[args.what](args.name)
+    {"objectives": objectives_main, "algorithms": algorithms_main, "stops": stops_main,
+     "vehicles": vehicles_main}[args.what](args.name)

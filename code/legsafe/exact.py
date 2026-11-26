@@ -50,6 +50,8 @@ class GridModel:
         self.stackable = np.array([t.stackable for t in inst.types])[self.kind]
         self.volume = self.size.prod(axis=1)
         self.centre_x = (self.lo[:, 0] + self.size[:, 0] / 2) * delta
+        self.centre_y = (self.lo[:, 1] + self.size[:, 1] / 2) * delta
+        self.centre_z = (self.lo[:, 2] + self.size[:, 2] / 2) * delta
         self.index = {(k, *l, *s): i for i, (k, l, s) in enumerate(zip(kind, lo, size))}
         self.max_pairs = sum(t.count for t in inst.types) ** 2
         self.hard = self._hard_rows()
@@ -131,6 +133,32 @@ class GridModel:
         matrix = sparse.hstack([sparse.csr_matrix(np.array(rows)), sparse.csr_matrix((len(rows), n))]).tocsr()
         return matrix, np.full(len(rows), -np.inf), np.array(upper)
 
+    def _rollover_rows(self, margin: float):
+        """rho_k >= margin on every leg, as two linear rows per leg (one per side of the vehicle).
+
+        rho_k >= margin  <=>  t/2 (T + M) -+ (mu_y - W/2 M) >= (1 + margin) a_y (T h_T + h_d M + mu_z),
+        with the vehicle's centre line at W/2 of the cargo space.
+        """
+        v, n = self.vehicle, self.n
+        factor = (1 + margin) * v.lateral_accel
+        lateral = self.mass * (self.centre_y - v.width / 2)
+        common = self.mass * (v.track / 2 - factor * (v.deck_height + self.centre_z))
+        bound = factor * v.tare * v.tare_cg_height - v.track / 2 * v.tare
+        rows = []
+        for k in range(self.inst.n_stops):
+            on_board = self.rank > k
+            for side in (1.0, -1.0):
+                rows.append(np.where(on_board, common - side * lateral, 0.0))
+        matrix = sparse.hstack([sparse.csr_matrix(np.array(rows)), sparse.csr_matrix((len(rows), n))]).tocsr()
+        return matrix, np.full(len(rows), bound), np.full(len(rows), np.inf)
+
+    def _margin_rows(self, margin: float):
+        """The rows that impose sigma >= margin: axle limits, and rollover when the vehicle has its data."""
+        blocks = [self._axle_rows(margin)]
+        if self.vehicle.track is not None:
+            blocks.append(self._rollover_rows(margin))
+        return blocks
+
     # --- solving -------------------------------------------------------------------------------
 
     def solve(self, margin: float | None = None, max_obstacles: int | None = None, time_limit: float = 120.0):
@@ -142,7 +170,7 @@ class GridModel:
         n = self.n
         blocks = [self.hard, self.blocking]
         if margin is not None:
-            blocks.append(self._axle_rows(margin))
+            blocks.extend(self._margin_rows(margin))
         if max_obstacles is not None:
             total = sparse.csr_matrix((np.ones(n), (np.zeros(n, int), n + np.arange(n))), shape=(1, 2 * n))
             blocks.append((total, np.array([0.0]), np.array([float(max_obstacles)])))
@@ -190,7 +218,7 @@ class GridModel:
         for k, lo, size in zip(layout.type, layout.lo, layout.size):
             key = (int(k), *(int(round(v / self.delta)) for v in lo), *(int(round(v / self.delta)) for v in size))
             x[self.index[key]] += 1
-        blocks = [self.hard] + ([self._axle_rows(margin)] if margin is not None else [])
+        blocks = [self.hard] + (self._margin_rows(margin) if margin is not None else [])
         worst = max(0.0, float(x.max()) - 1)
         for matrix, lower, upper in blocks:
             value = matrix @ x

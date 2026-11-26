@@ -19,7 +19,7 @@ from functools import partial
 
 import numpy as np
 
-from legsafe import axle_margin, decode, leg_moments, n_keys, nsga2, support_loads, unloading_obstacles, utilisation
+from legsafe import axle_margin, decode, leg_moments, n_keys, nsga2, rollover_margin, support_loads, unloading_obstacles, utilisation
 
 from .common import GENERATIONS, POP_SIZE, REFERENCE_TARE, TARE, instance, jobs, run_parallel, truck
 
@@ -123,7 +123,15 @@ def fill_first(inst, rng, generations: int, pop_size: int, count: int) -> np.nda
     return best_first(inst, rng, generations, pop_size, count, "fill")
 
 
-def search(inst, rng, config, offset_step=None, observer=None):
+def margin_of(inst, layout, vehicle=None) -> float:
+    """Worst margin over the legs: axle loads on VEHICLE, or axle loads and rollover on `vehicle`."""
+    lm = legs(inst, layout)
+    if vehicle is None:
+        return float(axle_margin(VEHICLE, lm).min())
+    return float(min(axle_margin(vehicle, lm).min(), rollover_margin(vehicle, lm).min()))
+
+
+def search(inst, rng, config, offset_step=None, observer=None, vehicle=None):
     """The three-objective search of a configuration; returns the keys of its result.
 
     With `fill_first` (evaluations per box type) the search starts with a search for fill alone and
@@ -131,6 +139,9 @@ def search(inst, rng, config, offset_step=None, observer=None):
     `access_seeds` it does the same with a search for the fewest unloading obstacles. The evaluations
     of these first parts come out of the budget, and the observer counts them: it is called with the
     number of the generation at which a search without first parts has used as many evaluations.
+
+    The margin is that of the axle loads on VEHICLE, or, with `vehicle`, the smaller of its axle and
+    rollover margins.
     """
     cap = config["cap"]
     pop, generations = config["pop_size"], config["generations"]
@@ -139,7 +150,7 @@ def search(inst, rng, config, offset_step=None, observer=None):
 
     def evaluate(keys):
         layout = decode(inst, keys, offset_step)
-        sigma = float(axle_margin(VEHICLE, legs(inst, layout)).min())
+        sigma = margin_of(inst, layout, vehicle)
         return -utilisation(inst, layout), unloading_obstacles(layout), -(sigma if cap is None else min(sigma, cap))
 
     initial = starting_members(inst, rng, config)
