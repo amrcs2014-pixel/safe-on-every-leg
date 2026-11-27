@@ -5,11 +5,19 @@ Published fills are from Alvarez Martinez, Alvarez-Valdes and Parreno (2015), Pe
 customer, with orientation, full support AND load-bearing constraints, which this run does not have:
   Table 6: their GRASP and the GRASP of Alonso et al. (2014), classes 1 to 15;
   Table 2, row for one customer: their GRASP on the instances of Christensen and Rousoe (2009), classes 1 to 7.
+
+Fills for the same problem as this run, with orientation and the support constraint and nothing
+else, are from Table 4 of Goncalves and Resende (2010), AT&T Labs Research technical report,
+optimization-online.org/2010/07/2688, read from the PDF on 27 Nov 2026: their BRKGA-CLP-S, and the
+packing variant of the tree search of Fanslau and Bortfeldt (2010) as they report it. Means over
+the 100 instances of a class.
 """
 import pandas as pd
 
 from .common import read
 
+BRKGA_S = [94.34, 94.88, 95.05, 94.75, 94.58, 94.39, 93.74, 92.65, 91.90, 91.28, 90.39, 89.81, 89.27, 88.57, 87.96]
+TREE_SEARCH = [94.51, 94.73, 94.74, 94.41, 94.13, 93.85, 93.20, 92.26, 91.48, 90.86, 90.11, 89.51, 88.98, 88.26, 87.57]
 GRASP_2015 = [82.5, 86.7, 88.4, 88.1, 87.4, 86.9, 85.53, 83.7, 82.4, 81.4, 80.1, 78.9, 77.7, 76.6, 75.5]
 ALONSO_2014 = [81.4, 85.7, 87.3, 86.9, 86.6, 86.3, 85.7, 85.5, 84.8, 84.0, 82.8, 81.3, 80.2, 78.9, 78.0]
 GRASP_2015_ONE_CUSTOMER = [92.47, 92.75, 92.76, 92.22, 91.68, 91.01, 89.62]

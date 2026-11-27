@@ -11,7 +11,7 @@ import pandas as pd
 
 from .common import ROOT, read
 from .final_summary import CASE, complete_replicates, indicators, per_run
-from .plain_summary import ALONSO_2014, GRASP_2015
+from .plain_summary import ALONSO_2014, BRKGA_S, GRASP_2015, TREE_SEARCH
 
 OUT = ROOT / "manuscript" / "generated"
 FIGURES = ROOT / "manuscript" / "figures"
@@ -100,12 +100,12 @@ def plain():
         budgets = sorted(d["per_type"].unique())
         fill = d.pivot_table(index="br_class", columns="per_type", values="fill") * 100
         instances = d.groupby("br_class")["instance"].nunique()
+        published = (BRKGA_S, TREE_SEARCH, GRASP_2015, ALONSO_2014)
         for c in fill.index:
-            rows.append([f"BR{c}", TYPES[c], int(instances[c]), f"{int(budgets[-1]):,}".replace(",", "{,}"), num(fill.loc[c, budgets[-1]], 1),
-                         num(GRASP_2015[c - 1], 1), num(ALONSO_2014[c - 1], 1)])
+            rows.append([f"BR{c}", TYPES[c], num(fill.loc[c, budgets[-1]], 1)] + [num(p[c - 1], 1) for p in published])
         classes = list(fill.index)
-        means.append([f"Mean BR{classes[0]}--{classes[-1]}", "", "", "", num(fill[budgets[-1]].mean(), 1),
-                      num(np.mean([GRASP_2015[c - 1] for c in classes]), 1), num(np.mean([ALONSO_2014[c - 1] for c in classes]), 1)])
+        means.append([f"Mean BR{classes[0]}--{classes[-1]}", "", num(fill[budgets[-1]].mean(), 1)]
+                     + [num(np.mean([p[c - 1] for c in classes]), 1) for p in published])
     means[0][0] = r"\midrule " + means[0][0]
     write("plain", rows + means)
 
