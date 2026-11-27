@@ -127,14 +127,14 @@ def figures():
     matplotlib.use("pdf")
     import matplotlib.pyplot as plt
 
-    plt.rcParams.update({"font.size": 8, "font.family": "serif", "axes.spines.top": False, "axes.spines.right": False,
+    plt.rcParams.update({"font.size": 8, "font.family": "sans-serif", "font.sans-serif": ["Arial", "DejaVu Sans"], "axes.spines.top": False, "axes.spines.right": False,
                          "legend.frameon": False, "pdf.fonttype": 42})
     FIGURES.mkdir(parents=True, exist_ok=True)
 
     # Convergence: area dominated by legal plans against the budget, one line per class.
     d = read("convergence_types.csv")
     t = d[d["source"] == "archive"].pivot_table(index="types", columns="per_type", values="area_legal") * 100
-    fig, ax = plt.subplots(figsize=(4.6, 2.4))
+    fig, ax = plt.subplots(figsize=(4.4, 2.5))
     for types, style in zip(t.index, ("o-", "s-", "^-", "v-", "D--", "x--")):
         ax.plot(t.columns, t.loc[types], style, color="black", markersize=3, linewidth=0.8, markerfacecolor="white", label=f"{types} box types")
     ax.set_xscale("log", base=2)
@@ -142,7 +142,7 @@ def figures():
     ax.set_xticklabels([f"{b:,}" for b in t.columns], rotation=45, ha="right")
     ax.set_xlabel("Evaluations per box type")
     ax.set_ylabel(r"Area of legal plans ($\times 100$)")
-    ax.legend(ncol=1, fontsize=7, loc="center left", bbox_to_anchor=(1.02, 0.5), handlelength=2.4)
+    ax.legend(ncol=1, fontsize=8, loc="center left", bbox_to_anchor=(1.02, 0.5), handlelength=2.4)
     fig.tight_layout()
     fig.savefig(FIGURES / "convergence.pdf", bbox_inches="tight")
     plt.close(fig)
@@ -178,7 +178,7 @@ def figures():
         ax.set_ylabel("Axle load (% of its limit)")
         ax.set_xticks(edges[:-1] + 0.5)
         ax.set_xticklabels(edges[:-1])
-        ax.legend(fontsize=7, loc="lower left")
+        ax.legend(fontsize=8, loc="lower left")
         fig.tight_layout()
         fig.savefig(FIGURES / "route.pdf")
         plt.close(fig)
@@ -195,7 +195,7 @@ def figures():
                    label=label)
     ax.set_xlabel("Unloading obstacles")
     ax.set_ylabel("Utilisation (%)")
-    ax.legend(fontsize=7, loc="lower right")
+    ax.legend(fontsize=8, loc="lower right")
     fig.tight_layout()
     fig.savefig(FIGURES / "front.pdf")
     plt.close(fig)
