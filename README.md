@@ -63,7 +63,7 @@ python -m experiments.final_summary vehicles vehicles
 python -m experiments.plain_summary
 ```
 
-`python -m experiments.paper` writes the tables and figures of the paper into `manuscript/generated/` and `manuscript/figures/`.
+`python -m experiments.paper` writes the tables and figures of the paper into `manuscript/generated/` and `manuscript/figures/`; `python -m experiments.figures_extra` draws the further figures (the mechanism, the 3D plans, the price of safety, the exact front of one small instance and the comparison of the four searches).
 
 The two final files were written in two parts, the first runs and then the later ones (`--first-run`), and merged. A run's seed depends only on its case and its run number, so a single command as above gives the same file. Files ending in `.csv.gz` are read directly by the summaries.
 
